@@ -1,0 +1,44 @@
+{
+  "name": "dsh-mobile-hanui",
+  "version": "0.2.3",
+  "description": "Standalone mobile UI shell for the DeepSeek Harness web GUI (phone layout, drawers, FAB, mobile composer fixes)",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Z-6354/dsh-mobile-hanui.git"
+  },
+  "scripts": {
+    "test": "node --test",
+    "prepublishOnly": "npm test"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "package.json",
+    "README.md",
+    "docs",
+    "LICENSE"
+  ]
+}
