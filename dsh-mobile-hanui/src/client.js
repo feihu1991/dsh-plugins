@@ -1067,15 +1067,19 @@ window.__ModuleLoader__.load({
           }
         }
         const onFocusIn = (e) => {
-          const t = e.target
-          if (!(t instanceof Element)) return
-          const isComposer = t.closest('textarea, input[type="text"], input:not([type]), [contenteditable="true"]')
-          if (!isComposer) return
-          // A focus within ~600ms of a real tap is user-intended — allow it.
-          if (Date.now() - userTapAt < 600) return
-          // Otherwise it is programmatic (session switch) — blur to keep the
-          // keyboard closed.
-          if (typeof t.blur === 'function') t.blur()
+          // Focus suppression DISABLED: the 600ms heuristic was unreliable on
+          // mobile (alternating "keyboard opens / doesn't open" per tap) and
+          // left the composer unable to focus. Let focus pass through so the
+          // soft keyboard always opens on a real tap. (Session-switch
+          // programmatic focus may now show the keyboard too — a minor,
+          // acceptable tradeoff vs. an unusable input.)
+          return
+          // const t = e.target
+          // if (!(t instanceof Element)) return
+          // const isComposer = t.closest('textarea, input[type="text"], input:not([type]), [contenteditable="true"]')
+          // if (!isComposer) return
+          // if (Date.now() - userTapAt < 600) return
+          // if (typeof t.blur === 'function') t.blur()
         }
         document.addEventListener('pointerdown', onPointerDown, true)
         document.addEventListener('touchstart', onPointerDown, { capture: true, passive: true })
@@ -1225,12 +1229,13 @@ window.__ModuleLoader__.load({
         return () => obs.disconnect()
       }, [frame])
 
-      // Swipe-left on visible backdrop → same onClose as backdrop click. No swipe-open.
+      // 滑动关闭：在 backdrop 上左滑，或在侧边栏/抽屉上右滑，均关闭面板。
+      // 手机随手一滑就能收回去，不用专门点遮罩外区域。
       React.useEffect(() => {
         if (!mobile) return
         let startX = 0
         let startY = 0
-        let mode = null // 'close' | null
+        let mode = null // 'close-backdrop' | 'close-drawer' | null
         let aborted = false
 
         const onStart = (e) => {
@@ -1244,14 +1249,24 @@ window.__ModuleLoader__.load({
           const target = e.target
           const onBackdrop =
             target === backdrop || (target instanceof Element && backdrop.contains(target))
-          if (!onBackdrop) {
+
+          // 在侧边栏/抽屉内部也支持滑动关闭（向右滑）
+          const frame = backdrop.parentElement
+          const sidebarEl = frame
+            ?.querySelector?.('.' + CLS.sidebar)
+          const onSidebar = sidebarEl &&
+            (target === sidebarEl || sidebarEl.contains(target)) &&
+            !onBackdrop
+
+          if (!onBackdrop && !onSidebar) {
             mode = null
             return
           }
+
           startX = t.clientX
           startY = t.clientY
           aborted = false
-          mode = 'close'
+          mode = onBackdrop ? 'close-backdrop' : 'close-drawer'
         }
 
         const onMove = (e) => {
@@ -1273,6 +1288,7 @@ window.__ModuleLoader__.load({
             aborted = false
             return
           }
+          const swipeMode = mode
           mode = null
           const t = e.changedTouches?.[0]
           if (!t) return
@@ -1281,9 +1297,18 @@ window.__ModuleLoader__.load({
           if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
             ignoreBackdropClickUntil.current = Date.now() + 300
           }
-          if (dx > -SWIPE_DX_MIN || Math.abs(dx) < Math.abs(dy) * SWIPE_DX_DY) return
-          ignoreBackdropClickUntil.current = Date.now() + 300
-          onClose()
+
+          if (swipeMode === 'close-backdrop') {
+            // 在 backdrop 上：左滑关闭
+            if (dx > -SWIPE_DX_MIN || Math.abs(dx) < Math.abs(dy) * SWIPE_DX_DY) return
+            ignoreBackdropClickUntil.current = Date.now() + 300
+            onClose()
+          } else if (swipeMode === 'close-drawer') {
+            // 在侧边栏上：右滑关闭
+            if (dx < SWIPE_DX_MIN || Math.abs(dx) < Math.abs(dy) * SWIPE_DX_DY) return
+            ignoreBackdropClickUntil.current = Date.now() + 300
+            onClose()
+          }
         }
 
         window.addEventListener('touchstart', onStart, { passive: true })
