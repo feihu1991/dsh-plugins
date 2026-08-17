@@ -150,6 +150,16 @@ window.__ModuleLoader__.load({
     transform: none !important;
   }
 
+  /* Keyboard (Android WebView) height fix: the layout viewport (and the
+     height:100% chain the composer sticks to) does not shrink when the soft
+     keyboard opens, so the sticky composer stays parked under the keyboard.
+     Drive the frame's height from the VISUAL viewport instead, which DOES
+     shrink above the keyboard — set by a visualViewport listener at runtime.
+     Falls back to the normal 100% height when the variable is absent. */
+  html.${HTML_CLASS} .${CLS.frame} {
+    height: var(--dsh-vv-height, 100%) !important;
+  }
+
   html.${HTML_CLASS} .${CLS.frame} > [data-side] {
     display: none !important;
   }
@@ -1345,6 +1355,38 @@ window.__ModuleLoader__.load({
           window.removeEventListener('resize', reclamp)
           window.removeEventListener('orientationchange', reclamp)
           vv?.removeEventListener?.('resize', reclamp)
+        }
+      }, [mobile])
+
+      // Drive the app frame height from the visual viewport so the sticky
+      // composer rises above the Android soft keyboard (the layout viewport /
+      // height:100% chain does not shrink when the keyboard opens). Set a CSS
+      // variable consumed by `.frame { height: var(--dsh-vv-height, 100%) }`.
+      React.useEffect(() => {
+        if (!mobile) return
+        const root = document.documentElement
+        const apply = () => {
+          const vv = window.visualViewport
+          const innerH = window.innerHeight
+          let h = innerH
+          if (vv && typeof vv.height === 'number' && vv.height > 0) h = vv.height
+          // Clamp: never exceed the layout viewport (keyboard fully closed) and
+          // never below a sane floor so the composer stays reachable.
+          h = Math.max(320, Math.min(h, innerH + 1))
+          root.style.setProperty('--dsh-vv-height', `${h}px`)
+        }
+        apply()
+        window.addEventListener('resize', apply)
+        window.addEventListener('orientationchange', apply)
+        const vv = window.visualViewport
+        vv?.addEventListener?.('resize', apply)
+        vv?.addEventListener?.('scroll', apply)
+        return () => {
+          root.style.removeProperty('--dsh-vv-height')
+          window.removeEventListener('resize', apply)
+          window.removeEventListener('orientationchange', apply)
+          vv?.removeEventListener?.('resize', apply)
+          vv?.removeEventListener?.('scroll', apply)
         }
       }, [mobile])
 
