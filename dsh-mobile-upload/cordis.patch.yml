@@ -1,0 +1,7 @@
+# dsh-mobile-upload bundle patch: insert the dual-face plugin row into the
+# web profile roster. Host half (exports ".") serves the /dsh-mobile-upload
+# upload route and writes files into the workspace; the `dsh.client` declaration
+# in package.json loads the browser half (exports "./client").
+- insert:
+    - id: dsh-mobile-upload
+      name: 'dsh-mobile-upload'

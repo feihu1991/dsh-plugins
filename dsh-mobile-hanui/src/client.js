@@ -67,6 +67,7 @@ window.__ModuleLoader__.load({
       primary: 'uV2eYG_primary',
       add: 'uV2eYG_add',
       input: 'uV2eYG_input',
+      mirror: 'uV2eYG_mirror',
     }
     // Conversation session header (title / 轨迹 / AgentPreset「模式」)
     const HDR = {
@@ -427,10 +428,11 @@ window.__ModuleLoader__.load({
     text-overflow: ellipsis !important;
   }
   html.${HTML_CLASS} .${INPUT.trailing} {
-    flex: 1 1 auto !important; /* NOT 1 1 100% — same row */
+    flex: 0 1 auto !important; /* do NOT swallow the mid-row gap — let the model
+                                  select sit next to the left tools */
     display: flex !important;
     flex-wrap: nowrap !important;
-    justify-content: flex-end !important;
+    justify-content: flex-start !important;
     align-items: center !important;
     gap: 6px !important;
     min-width: 0 !important;
@@ -446,6 +448,21 @@ window.__ModuleLoader__.load({
     height: 40px !important;
     transform: none !important;
     flex: none !important;
+    /* Lift the send button out of the crowded toolbar and park it beside the
+       textarea (same line) so the tool row keeps its space for the other
+       controls. Absolute against .card (position:relative), so it leaves the
+       .trailing flow and frees that width in the toolbar row. */
+    position: absolute !important;
+    right: 10px !important;
+    top: 8px !important;
+    bottom: auto !important;
+    margin-left: 0 !important;
+    z-index: 5 !important;
+  }
+  /* Keep typed text clear of the now-line-level send button. */
+  html.${HTML_CLASS} .${INPUT.input},
+  html.${HTML_CLASS} .${INPUT.mirror} {
+    padding-right: 56px !important;
   }
 
   /* Session header: title alone; 「模式」beside 轨迹 tabs */
