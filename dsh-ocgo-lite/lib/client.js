@@ -352,11 +352,9 @@ window.__ModuleLoader__.load({
           },
         }, children);
 
-      const bar = React.createElement("span", { ref: wrapRef, style: narrow
-        ? { display: "inline-flex", alignItems: "center", flexWrap: "wrap", rowGap: 2, columnGap: 0, whiteSpace: "nowrap", fontSize: 9, color: "var(--dsw-alias-label-secondary, #888)", maxWidth: "100%", boxSizing: "border-box" }
-        : { display: "inline-flex", alignItems: "center", gap: 0, whiteSpace: "nowrap", fontSize: 10, color: "var(--dsw-alias-label-secondary, #888)" } },
-        (() => {
-          // 徽标:显示当前提供方简称(选中模型 → 该模型 provider;否则当前活跃 provider)
+      const barChildren = [];
+      // 徽标:显示当前提供方简称(选中模型 → 该模型 provider;否则当前活跃 provider)
+      barChildren.push((() => {
           const badgeText = providerShort(badgeProvider) + ":";
           const badgeColors = { "opencode-go": ["#4c7dff","rgba(76,125,255,.14)"], "xiaomi-token-plan-cn": ["#ff6900","rgba(255,105,0,.14)"], "openrouter": ["#7c3aed","rgba(124,58,237,.14)"], "deepseek-official": ["#00b96b","rgba(0,185,107,.14)"] };
           const bc = badgeColors[badgeProvider] || ["#e08a3c","rgba(224,138,60,.16)"];
@@ -368,45 +366,55 @@ window.__ModuleLoader__.load({
               setPop(pop && pop.key === "account" ? null : { key: "account", rect: { left: r.left, top: r.top, width: r.width, height: r.height } });
             },
           }, badgeText);
-        })(),
-        // 配额圆环：仅当前 provider 有配额 API 时显示（opencode-go）
-        ...(hasQuota ? [
-          React.createElement("span", { key: "sep-q", style: sepBox }),
-          seg("quota-rolling", [
-            React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "滚动："),
-            React.createElement(Ring, { key: "r", percent: rp, color: ringColor(rp), size: narrow ? 28 : undefined }),
-          ]),
-          React.createElement("span", { key: "sep-qw", style: sepBox }),
-          seg("quota-weekly", [
-            React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "周："),
-            React.createElement(Ring, { key: "r", percent: wp, color: ringColor(wp), size: narrow ? 28 : undefined }),
-          ]),
-          React.createElement("span", { key: "sep-qm", style: sepBox }),
-          seg("quota-monthly", [
-            React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "月："),
-            React.createElement(Ring, { key: "r", percent: mp, color: ringColor(mp), size: narrow ? 28 : undefined }),
-          ]),
-        ] : []),
-        React.createElement("span", { style: sepBox }),
-        seg("scope", [
-          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "范围："),
-          React.createElement("span", { key: "b", style: narrow ? { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums", maxWidth: 64, overflow: "hidden", textOverflow: "ellipsis" } : { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums" } }, scopeLabel),
-        ]),
-        React.createElement("span", { style: sepBox }),
-        seg("model", [
-          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "模型："),
-          React.createElement("span", { key: "b", style: narrow ? { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums", maxWidth: 96, overflow: "hidden", textOverflow: "ellipsis" } : { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums" } }, modelSel || "全部"),
-        ]),
-        React.createElement("span", { style: sepBox }),
-        seg("token", [
-          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "token："),
-          React.createElement("span", { key: "b", style: { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums" } }, narrow ? fmtCompact(shownTotal) : fmtInt(shownTotal)),
-        ]),
-        React.createElement("span", { style: sepBox }),
-        seg("money", [
-          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "花费："),
-          React.createElement("span", { key: "b", style: { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums" } }, fmtUsd(shownCost)),
+        })());
+      barChildren.push(React.createElement("span", { style: sepBox }));
+      // 配额圆环：仅当前 provider 有配额 API 时显示（opencode-go）
+      if (hasQuota) {
+        barChildren.push(seg("quota-rolling", [
+          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "滚动："),
+          React.createElement(Ring, { key: "r", percent: rp, color: ringColor(rp), size: narrow ? 28 : undefined }),
         ]));
+        barChildren.push(React.createElement("span", { style: sepBox }));
+        barChildren.push(seg("quota-weekly", [
+          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "周："),
+          React.createElement(Ring, { key: "r", percent: wp, color: ringColor(wp), size: narrow ? 28 : undefined }),
+        ]));
+        barChildren.push(React.createElement("span", { style: sepBox }));
+        barChildren.push(seg("quota-monthly", [
+          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "月："),
+          React.createElement(Ring, { key: "r", percent: mp, color: ringColor(mp), size: narrow ? 28 : undefined }),
+        ]));
+        barChildren.push(React.createElement("span", { style: sepBox }));
+      }
+      // 范围
+      barChildren.push(seg("scope", [
+        React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "范围："),
+        React.createElement("span", { key: "b", style: narrow ? { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums", maxWidth: 64, overflow: "hidden", textOverflow: "ellipsis" } : { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums" } }, scopeLabel),
+      ]));
+      barChildren.push(React.createElement("span", { style: sepBox }));
+      // 模型
+      barChildren.push(seg("model", [
+        React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "模型："),
+        React.createElement("span", { key: "b", style: narrow ? { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums", maxWidth: 96, overflow: "hidden", textOverflow: "ellipsis" } : { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums" } }, modelSel || "全部"),
+      ]));
+      barChildren.push(React.createElement("span", { style: sepBox }));
+      // token
+      barChildren.push(seg("token", [
+        React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "token："),
+        React.createElement("span", { key: "b", style: { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums" } }, narrow ? fmtCompact(shownTotal) : fmtInt(shownTotal)),
+      ]));
+      barChildren.push(React.createElement("span", { style: sepBox }));
+      // 花费
+      barChildren.push(seg("money", [
+        React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "花费："),
+        React.createElement("span", { key: "b", style: { fontWeight: 700, color: "var(--dsw-alias-label-primary, inherit)", fontVariantNumeric: "tabular-nums" } }, fmtUsd(shownCost)),
+      ]));
+
+      const bar = React.createElement("span", Object.assign({ ref: wrapRef }, { style: narrow
+        ? { display: "inline-flex", alignItems: "center", flexWrap: "wrap", rowGap: 2, columnGap: 0, whiteSpace: "nowrap", fontSize: 9, color: "var(--dsw-alias-label-secondary, #888)", maxWidth: "100%", boxSizing: "border-box" }
+        : { display: "inline-flex", alignItems: "center", gap: 0, whiteSpace: "nowrap", fontSize: 10, color: "var(--dsw-alias-label-secondary, #888)" } }),
+        ...barChildren
+      );
 
       if (!pop) return bar;
 
