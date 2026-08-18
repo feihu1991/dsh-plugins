@@ -57,6 +57,27 @@ function homeDir() {
   return process.env.USERPROFILE || process.env.HOME || ''
 }
 
+// 读取 .credentials.yaml 里某个环境变量的值
+function readCredential(envName) {
+  const home = homeDir()
+  if (!home) return null
+  try {
+    const creds = join(home, '.dsh', '.credentials.yaml')
+    if (!existsSync(creds)) return null
+    const text = readFileSync(creds, 'utf8')
+    for (const line of text.split('\n')) {
+      const m = line.match(/^\s*([A-Za-z0-9_]+)\s*:\s*(.+?)\s*$/)
+      if (m && m[1] === envName) return m[2].trim()
+    }
+  } catch {}
+  return null
+}
+
+// 提取 provider 专属 API key（环境变量优先，.credentials.yaml 兜底）
+function getProviderKey(envName) {
+  return process.env[envName] || readCredential(envName) || null
+}
+
 function findDataDir() {
   const home = homeDir()
   if (!home) return null
@@ -74,28 +95,49 @@ function readApiKey(dataDir) {
   } catch { return null }
 }
 
-// 配额 API:官方 Bearer 接口,返回 rolling/weekly/monthly 窗口占比与重置时间
-async function fetchQuota(key) {
+// 通用 Bearer fetch + JSON 响应
+async function fetchJson(url, key, timeoutMs) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs || FETCH_TIMEOUT_MS)
   try {
-    const res = await fetch(USAGE_URL, {
+    const res = await fetch(url, {
       headers: { Authorization: 'Bearer ' + key, Accept: 'application/json' },
       signal: controller.signal,
     })
     if (!res.ok) return { error: 'HTTP_' + res.status }
-    const body = await res.json()
-    const u = (body && body.usage) || body || {}
-    const pick = (w) => (w && typeof w === 'object'
-      ? { percent: typeof w.percent === 'number' ? w.percent : null, resetsAt: typeof w.resetsAt === 'string' ? w.resetsAt : null, status: typeof w.status === 'string' ? w.status : null }
-      : null)
-    return {
-      rolling: pick(u.rolling), weekly: pick(u.weekly), monthly: pick(u.monthly), error: null,
-    }
+    return await res.json()
   } catch (e) {
     return { error: 'NETWORK:' + String((e && e.message) || e) }
   } finally {
     clearTimeout(timer)
+  }
+}
+
+// 配额 API:官方 Bearer 接口,返回 rolling/weekly/monthly 窗口占比与重置时间
+async function fetchOpenCodeQuota(key) {
+  const body = await fetchJson(USAGE_URL, key)
+  if (body.error) return body
+  const u = (body && body.usage) || body || {}
+  const pick = (w) => (w && typeof w === 'object'
+    ? { percent: typeof w.percent === 'number' ? w.percent : null, resetsAt: typeof w.resetsAt === 'string' ? w.resetsAt : null, status: typeof w.status === 'string' ? w.status : null }
+    : null)
+  return {
+    rolling: pick(u.rolling), weekly: pick(u.weekly), monthly: pick(u.monthly), error: null,
+  }
+}
+
+// OpenRouter 余额: https://openrouter.ai/api/v1/auth/key
+async function fetchOpenRouterBalance(key) {
+  const body = await fetchJson('https://openrouter.ai/api/v1/auth/key', key)
+  if (body.error) return body
+  const d = body.data || body || {}
+  return {
+    usage: typeof d.usage === 'number' ? d.usage : null,
+    limit: typeof d.limit === 'number' ? d.limit : null,
+    limitRemaining: (typeof d.limit === 'number' && typeof d.usage === 'number') ? Math.max(0, d.limit - d.usage) : null,
+    isFreeTier: !!d.is_free_tier,
+    rateLimit: d.rate_limit || null,
+    error: null,
   }
 }
 
@@ -636,37 +678,53 @@ function scanZstdFrames(buffer) {
 const zstdDecompressAsync = promisify(zstdDecompress)
 
 async function collect(ctx, liveId) {
-  const out = { ok: false, error: null, quota: null, quotaError: null, stats: null, meta: {}, account: null }
+  const out = { ok: false, error: null, quota: null, quotaError: null, providerQuota: {}, stats: null, meta: {}, account: null }
   // 定价动态更新:每 24h 抓一次官方页面,官方改价后自动跟随(失败静默用内置表)
   if (!pricingLastFetch || Date.now() - pricingLastFetch > 24 * 60 * 60 * 1000) {
     await fetchOfficialPricing()
   }
   if (pricingFetchedAt) out.meta.pricingUpdatedAt = pricingFetchedAt
 
-  const dataDir = findDataDir()
-  if (!dataDir) { out.error = 'NO_OPENCODE'; return out }
-  out.meta.dataDir = dataDir
-
-  const key = readApiKey(dataDir)
-  if (!key) { out.error = 'NO_KEY'; return out }
-  // key 掩码:仅用于展示状态,明文走 /ocgo-lite/key 专用端点
-  out.account = {
-    keyMask: key.length > 10 ? key.slice(0, 6) + '…' + key.slice(-4) : 'sk-…',
-  }
-
-  // 配额:失败降级(quota=null + quotaError),不阻断 DSH 统计
-  const quota = await fetchQuota(key)
-  if (quota.error) out.quotaError = quota.error
-  else out.quota = quota
-
-  // DSH 会话统计:token 真实计量 + 金额按官方定价估算
-  // liveId:实时通道(只重读该会话文件),用于"本次会话"范围的实时更新
+  // ── DSH 会话统计（永远执行，不需要任何外部 API / key）──
   const sq = ctx.get('sessionQuery')
   if (!sq) { out.error = 'NO_SESSION_QUERY'; return out }
   const stats = liveId ? await liveSessionStats(sq, liveId) : await collectDshStats(sq)
   if (stats.error) { out.error = stats.error; return out }
   out.stats = stats
-  out.ok = true
+  out.ok = true // 统计可用即 ok，配额缺失不阻断
+
+  // ── 各 provider 配额/余额查询（可选，失败不阻断）──
+
+  // 1. OpenCode Go 配额
+  const ocKey = (() => {
+    const dd = findDataDir()
+    if (dd) { out.meta.dataDir = dd; return readApiKey(dd) }
+    return getProviderKey('OPENCODE_GO_API_KEY')
+  })()
+  if (ocKey) {
+    out.account = { keyMask: ocKey.length > 10 ? ocKey.slice(0, 6) + '…' + ocKey.slice(-4) : 'sk-…' }
+    const q = await fetchOpenCodeQuota(ocKey)
+    if (!q.error) {
+      out.quota = q
+      out.providerQuota['opencode-go'] = { type: 'opencode', ...q }
+    } else {
+      out.quotaError = q.error
+    }
+  }
+
+  // 2. OpenRouter 余额
+  const orKey = getProviderKey('OPENROUTER_API_KEY')
+  if (orKey) {
+    const bal = await fetchOpenRouterBalance(orKey)
+    if (!bal.error) {
+      out.providerQuota['openrouter'] = { type: 'balance', ...bal }
+    }
+  }
+
+  // 3. 其他 provider 余额（扩展点：按需添加）
+  // xiaomi-token-plan-cn: 暂无公开余额 API，跳过
+  // deepseek-official: 如有 direct key 可加 fetchDeepSeekBalance
+
   return out
 }
 
@@ -676,8 +734,8 @@ export function apply(ctx) {
   // 模型工具:对话里随时可查(可选能力;dsh-tools 可解析时才注册,零硬依赖)
   try {
     const tool = {
-      name: 'opencode_go_usage',
-      description: '查询 OpenCode Go 套餐的余量(5小时滚动/每周/每月窗口占比与重置时间)、DSH 会话累计消耗的 token 数量(输入/输出/推理/缓存)与消费金额(USD,按官方定价估算)。',
+      name: 'provider_usage',
+      description: '查询当前所有已配置 AI provider 的用量与余额（OpenCode Go 配额、OpenRouter 余额等），以及 DSH 会话累计消耗的 token 数量（输入/输出/推理/缓存）与消费金额（USD，按官方定价估算）。无余额 API 的 provider 只显示 token 统计。',
       parameters: {},
       output: {
         schema: { type: 'object', properties: {}, additionalProperties: true },
@@ -720,20 +778,33 @@ export function apply(ctx) {
     }), 'ocgo-lite: route')
 
     // 复制 API Key 专用端点:仅本机同源访问,返回完整 key 供剪贴板
+    // ?provider=<name> 按 provider 返回对应 key;不传默认 opencode-go
     ctx.effect(() => ctx.webServer.register({
       kind: 'exact',
       path: '/ocgo-lite/key',
       handler: async (req, res) => {
         try {
-          const dataDir = findDataDir()
-          const key = dataDir ? readApiKey(dataDir) : null
+          let provider = 'opencode-go'
+          try { provider = new URL(req.url || '/', 'http://localhost').searchParams.get('provider') || 'opencode-go' } catch {}
+          const envMap = {
+            'opencode-go': 'OPENCODE_GO_API_KEY',
+            'xiaomi-token-plan-cn': 'XIAOMI_TOKEN_PLAN_CN_API_KEY',
+            'openrouter': 'OPENROUTER_API_KEY',
+          }
+          let key = null
+          if (provider === 'opencode-go') {
+            const dd = findDataDir()
+            key = dd ? readApiKey(dd) : getProviderKey('OPENCODE_GO_API_KEY')
+          } else {
+            key = getProviderKey(envMap[provider] || '')
+          }
           if (!key) {
             res.writeHead(404, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ ok: false, error: 'NO_KEY' }))
+            res.end(JSON.stringify({ ok: false, error: 'NO_KEY', provider }))
             return
           }
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ ok: true, key }))
+          res.end(JSON.stringify({ ok: true, key, provider }))
         } catch (e) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: false, error: String((e && e.message) || e) }))

@@ -254,17 +254,20 @@ window.__ModuleLoader__.load({
 
       if (!data || loading) {
         return React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--dsw-alias-label-secondary, #888)", whiteSpace: "nowrap" } },
-          React.createElement("span", null, "OpenCode Go …"));
+          React.createElement("span", null, "用量统计 …"));
       }
       if (!data.ok) {
         return React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 8, fontSize: 10, whiteSpace: "nowrap" } },
-          React.createElement("span", { style: { color: "#e5484d", fontWeight: 700 } }, "GO:不可用"),
+          React.createElement("span", { style: { color: "#e5484d", fontWeight: 700 } }, "统计不可用"),
           React.createElement("span", { style: { color: "var(--dsw-alias-label-tertiary, #888)" } }, String(data.error || "err")),
           React.createElement("button", { onClick: load, style: { border: "1px solid rgba(128,128,128,.35)", background: "transparent", color: "inherit", borderRadius: 6, padding: "2px 8px", fontSize: 10, cursor: "pointer" } }, "重试"));
       }
 
-      const q = data.quota || {};
-      const rp = pctOf(q.rolling), wp = pctOf(q.weekly), mp = pctOf(q.monthly);
+      // 当前 provider 的配额/余额（来自 providerQuota 按 provider 分组）
+      const curQuota = (data.providerQuota || {})[badgeProvider] || data.quota || null;
+      const q = curQuota || {};
+      const hasQuota = curQuota && curQuota.type === 'opencode';
+      const rp = hasQuota ? pctOf(q.rolling) : null, wp = hasQuota ? pctOf(q.weekly) : null, mp = hasQuota ? pctOf(q.monthly) : null;
       const s = data.stats || {};
       const t = s.tokens || {};
       const total = (t.input || 0) + (t.output || 0) + (t.reasoning || 0) + (t.cacheRead || 0) + (t.cacheWrite || 0);
@@ -284,9 +287,8 @@ window.__ModuleLoader__.load({
       // 当前提供方:当前会话最后事件 provider(实时跟随切换)→ 活跃 provider → 默认 GO
       const actProv = (s && s.activeProvider) || null;
       const badgeProvider = (currentSession && currentSession.lastProvider) || actProv || "opencode-go";
-      const badgeIsGo = badgeProvider === "opencode-go";
-      const providerShort = (p) => (p === "opencode-go" ? "GO" : (p === "deepseek-official" ? "DS" : (p && p !== "unknown" ? p.slice(0, 4).toUpperCase() : "API")));
-      const providerFull = (p) => (p === "opencode-go" ? "OpenCode Go" : (p && p !== "unknown" ? p : "未知"));
+      const providerShort = (p) => (p === "opencode-go" ? "GO" : (p === "xiaomi-token-plan-cn" ? "MiMo" : (p === "deepseek-official" ? "DS" : (p === "openrouter" ? "OR" : (p && p !== "unknown" ? p.slice(0, 4).toUpperCase() : "API")))));
+      const providerFull = (p) => (p === "opencode-go" ? "OpenCode Go" : (p === "xiaomi-token-plan-cn" ? "小米 Token Plan" : (p === "deepseek-official" ? "DeepSeek" : (p === "openrouter" ? "OpenRouter" : (p && p !== "unknown" ? p : "未知")))));
       // 按当前提供方过滤的全局统计
       const provStats = ((s && s.providers) || []).find((p) => p.provider === badgeProvider) || null;
       const provTotal = provStats ? sumTok(provStats.tokens) : 0;
@@ -356,32 +358,35 @@ window.__ModuleLoader__.load({
         (() => {
           // 徽标:显示当前提供方简称(选中模型 → 该模型 provider;否则当前活跃 provider)
           const badgeText = providerShort(badgeProvider) + ":";
-          const badgeColor = badgeIsGo ? "#4c7dff" : "#e08a3c";
-          const badgeBg = badgeIsGo ? "rgba(76,125,255,.14)" : "rgba(224,138,60,.16)";
+          const badgeColors = { "opencode-go": ["#4c7dff","rgba(76,125,255,.14)"], "xiaomi-token-plan-cn": ["#ff6900","rgba(255,105,0,.14)"], "openrouter": ["#7c3aed","rgba(124,58,237,.14)"], "deepseek-official": ["#00b96b","rgba(0,185,107,.14)"] };
+          const bc = badgeColors[badgeProvider] || ["#e08a3c","rgba(224,138,60,.16)"];
           return React.createElement("span", {
-            title: "当前提供方：" + providerFull(badgeProvider) + (badgeIsGo ? "" : "（非 OpenCode Go）"),
-            style: { fontWeight: 800, fontSize: 9, letterSpacing: ".06em", padding: "1px 5px", borderRadius: 5, color: badgeColor, background: badgeBg, flex: "none", cursor: "pointer" },
+            title: "当前提供方：" + providerFull(badgeProvider),
+            style: { fontWeight: 800, fontSize: 9, letterSpacing: ".06em", padding: "1px 5px", borderRadius: 5, color: bc[0], background: bc[1], flex: "none", cursor: "pointer" },
             onClick: (e) => {
               const r = e.currentTarget.getBoundingClientRect();
               setPop(pop && pop.key === "account" ? null : { key: "account", rect: { left: r.left, top: r.top, width: r.width, height: r.height } });
             },
           }, badgeText);
         })(),
-        React.createElement("span", { style: sepBox }),
-        seg("quota-rolling", [
-          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "滚动："),
-          React.createElement(Ring, { key: "r", percent: rp, color: ringColor(rp), size: narrow ? 28 : undefined }),
-        ]),
-        React.createElement("span", { style: sepBox }),
-        seg("quota-weekly", [
-          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "周："),
-          React.createElement(Ring, { key: "r", percent: wp, color: ringColor(wp), size: narrow ? 28 : undefined }),
-        ]),
-        React.createElement("span", { style: sepBox }),
-        seg("quota-monthly", [
-          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "月："),
-          React.createElement(Ring, { key: "r", percent: mp, color: ringColor(mp), size: narrow ? 28 : undefined }),
-        ]),
+        // 配额圆环：仅当前 provider 有配额 API 时显示（opencode-go）
+        ...(hasQuota ? [
+          React.createElement("span", { key: "sep-q", style: sepBox }),
+          seg("quota-rolling", [
+            React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "滚动："),
+            React.createElement(Ring, { key: "r", percent: rp, color: ringColor(rp), size: narrow ? 28 : undefined }),
+          ]),
+          React.createElement("span", { key: "sep-qw", style: sepBox }),
+          seg("quota-weekly", [
+            React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "周："),
+            React.createElement(Ring, { key: "r", percent: wp, color: ringColor(wp), size: narrow ? 28 : undefined }),
+          ]),
+          React.createElement("span", { key: "sep-qm", style: sepBox }),
+          seg("quota-monthly", [
+            React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "月："),
+            React.createElement(Ring, { key: "r", percent: mp, color: ringColor(mp), size: narrow ? 28 : undefined }),
+          ]),
+        ] : []),
         React.createElement("span", { style: sepBox }),
         seg("scope", [
           React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "范围："),
@@ -577,18 +582,32 @@ window.__ModuleLoader__.load({
             React.createElement("button", { style: btnStyle, onClick: (e) => { e.stopPropagation(); setPop(null); } }, "收起")),
           React.createElement("div", { style: footStyle }, "更新于 " + fmtClock(lastUpdated) + " · 自动刷新 30 秒"));
       } else if (popKey === "account") {
-        // 账户卡片:API key 无用户身份信息,显示套餐/配额概览 + key 掩码 + 复制
+        // 账户卡片:按当前 provider 显示配额/余额 + key 掩码 + 复制
         // + 当前识别到的 provider(切换套餐/大模型后实时反映)
-        const winRows = [
+        const winRows = hasQuota ? [
           ["5 小时滚动", rp], ["每周", wp], ["每月", mp],
         ].map(([label, p]) =>
           React.createElement("div", { key: label, style: rowStyle },
             React.createElement("span", null, label + "："),
-            React.createElement("span", { style: bStyle }, p == null ? "-" : p + "%")));
+            React.createElement("span", { style: bStyle }, p == null ? "-" : p + "%"))) : [];
+        // OpenRouter 余额
+        const orQuota = (data.providerQuota || {})["openrouter"];
+        if (badgeProvider === "openrouter" && orQuota && !orQuota.error) {
+          if (orQuota.limit != null) {
+            winRows.push(React.createElement("div", { key: "or-limit", style: rowStyle },
+              React.createElement("span", null, "额度："),
+              React.createElement("span", { style: bStyle }, "$" + (orQuota.limitRemaining != null ? orQuota.limitRemaining.toFixed(2) : "?") + " / $" + orQuota.limit.toFixed(2))));
+          }
+          if (orQuota.usage != null) {
+            winRows.push(React.createElement("div", { key: "or-usage", style: rowStyle },
+              React.createElement("span", null, "已用："),
+              React.createElement("span", { style: bStyle }, "$" + orQuota.usage.toFixed(4))));
+          }
+        }
         const acct = (data && data.account) || {};
         const keyMask = acct.keyMask || "sk-…";
         const copyKey = () => {
-          fetch("/ocgo-lite/key", { headers: { Accept: "application/json" } })
+          fetch("/ocgo-lite/key?provider=" + encodeURIComponent(badgeProvider), { headers: { Accept: "application/json" } })
             .then((r) => r.json())
             .then((res) => {
               if (res && res.ok && res.key) {
@@ -604,17 +623,14 @@ window.__ModuleLoader__.load({
         };
         const providers = ((data.stats && data.stats.providers) || []);
         const ap = (data.stats && data.stats.activeProvider) || null;
-        const provName = (p) => (p === "opencode-go" ? "OpenCode Go" : (p && p !== "unknown" ? p : "其他"));
         const provRows = providers.length > 1 ? providers.map((p) =>
           React.createElement("div", { key: p.provider, style: Object.assign({}, rowStyle, { fontSize: 10 }) },
-            React.createElement("span", { style: { color: p.provider === ap ? "var(--dsw-alias-label-primary, #222)" : "inherit", fontWeight: p.provider === ap ? 700 : 400 } }, provName(p.provider) + (p.provider === ap ? " ◀" : "")),
+            React.createElement("span", { style: { color: p.provider === ap ? "var(--dsw-alias-label-primary, #222)" : "inherit", fontWeight: p.provider === ap ? 700 : 400 } }, providerFull(p.provider) + (p.provider === ap ? " ◀" : "")),
             React.createElement("span", { style: bStyle }, fmtUsd(p.cost)) + " + " + p.requests + " 次")) : null;
         content = React.createElement(React.Fragment, null,
-          React.createElement("div", { style: h4Style }, "OpenCode Go 账户" + (ap && ap !== "opencode-go" ? "（当前：" + provName(ap) + "）" : "")),
+          React.createElement("div", { style: h4Style }, providerFull(badgeProvider) + " 账户" + (ap && ap !== badgeProvider ? "（活跃：" + providerFull(ap) + "）" : "")),
           React.createElement("div", { style: rowStyle }, React.createElement("span", null, "登录状态："),
-            React.createElement("span", { style: bStyle }, data && data.ok ? "已登录 ✓" : "未登录")),
-          React.createElement("div", { style: rowStyle }, React.createElement("span", null, "套餐："),
-            React.createElement("span", { style: bStyle }, "Go 订阅")),
+            React.createElement("span", { style: bStyle }, data && data.ok ? "已连接 ✓" : "未连接")),
           winRows,
           React.createElement("div", { style: rowStyle }, React.createElement("span", null, "当前提供方："),
             React.createElement("span", { style: bStyle }, provName(ap))),
