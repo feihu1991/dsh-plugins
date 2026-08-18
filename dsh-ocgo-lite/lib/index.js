@@ -233,41 +233,10 @@ async function fetchOfficialPricing() {
 }
 
 // 按模型估算单次调用金额(USD);未知模型返回 null
-// DeepSeek 官方人民币定价（每百万 tokens，来源 https://api-docs.deepseek.com/zh-cn/quick_start/pricing/）
-// 高峰时段（北京时间 9:00-12:00、14:00-18:00）价格翻倍，其余为空闲时段价
-const DEEPSEEK_CNY_PRICING = {
-  'deepseek-v4-flash': { in: 1.5, inCache: 0.05, out: 4.5 },
-  'deepseek-v4-pro': { in: 4.5, inCache: 0.15, out: 13.5 },
-  'deepseek-chat': { in: 2.0, inCache: 0.5, out: 8.0 },
-  'deepseek-reasoner': { in: 4.0, inCache: 1.0, out: 16.0 },
-  'deepseek-v3.2': { in: 2.0, inCache: 0.5, out: 8.0 },
-}
-
-// 是否 DeepSeek 高峰时段（北京时间 9-12、14-18）
-function isDeepSeekPeak() {
-  try {
-    const now = new Date()
-    const h = (now.getUTCHours() + 8) % 24
-    return (h >= 9 && h < 12) || (h >= 14 && h < 18)
-  } catch { return false }
-}
-
 function costOf(model, ti, to, tr, cr, cw) {
-  const m = normModel(model)
-  // DeepSeek 官方人民币定价（分高峰/空闲时段）
-  const dp = DEEPSEEK_CNY_PRICING[m]
-  if (dp) {
-    const peak = isDeepSeekPeak() ? 2 : 1
-    const inP = dp.in * peak
-    const inCacheP = dp.inCache * peak
-    const outP = dp.out * peak
-    // 输入按未命中价、缓存读按命中价、输出/推理按输出价（元）
-    return r4(((ti || 0) * inP + (to || 0) * outP + (tr || 0) * outP + (cr || 0) * inCacheP) / 1e6)
-  }
-  const p = PRICING[m]
+  const p = PRICING[normModel(model)]
   if (!p) return null
-  // 其他模型:官方 USD 定价 × 汇率 = 人民币
-  return r4(((ti || 0) * p.in + (to || 0) * p.out + (cr || 0) * p.cr + (cw || 0) * p.cw) / 1e6 * CNY_PER_USD)
+  return r4(((ti || 0) * p.in + (to || 0) * p.out + (cr || 0) * p.cr + (cw || 0) * p.cw) / 1e6)
 }
 
 // DSH 会话统计:扫 assistant/message 事件里的 usage(真实计量),只算 opencode-go provider。
@@ -751,7 +720,8 @@ async function collect(ctx, liveId) {
   const stats = liveId ? await liveSessionStats(sq, liveId) : await collectDshStats(sq)
   if (stats.error) { out.error = stats.error; return out }
   out.stats = stats
-  // 花费已按人民币计算(costOf: DeepSeek 用官方人民币价、其他 USD×汇率)
+  // 花费统一换算成人民币显示(定价表为 USD,乘以汇率)
+  convertCostToCny(out.stats)
   out.meta.currency = 'CNY'
   out.meta.cnyPerUsd = CNY_PER_USD
   out.ok = true // 统计可用即 ok，配额缺失不阻断
@@ -801,6 +771,26 @@ async function collect(ctx, liveId) {
 
 // USD → CNY 汇率(用于把官方定价表的 USD 花费换算成人民币显示)
 const CNY_PER_USD = 7.15
+
+// 递归把 stats 里所有 cost 字段从 USD 换算成 CNY(costKnown/costUnknown 是次数,不转)
+function convertCostToCny(stats) {
+  if (!stats) return stats
+  const conv = (x) => r4((x || 0) * CNY_PER_USD)
+  stats.cost = conv(stats.cost)
+  if (Array.isArray(stats.providers)) for (const p of stats.providers) p.cost = conv(p.cost)
+  if (Array.isArray(stats.byModel)) for (const m of stats.byModel) m.cost = conv(m.cost)
+  if (Array.isArray(stats.bySession)) for (const s of stats.bySession) {
+    s.cost = conv(s.cost)
+    if (Array.isArray(s.byProvider)) for (const p of s.byProvider) p.cost = conv(p.cost)
+    if (Array.isArray(s.byModel)) for (const m of s.byModel) m.cost = conv(m.cost)
+    if (s.lastTurn) {
+      s.lastTurn.cost = conv(s.lastTurn.cost)
+      if (Array.isArray(s.lastTurn.byProvider)) for (const p of s.lastTurn.byProvider) p.cost = conv(p.cost)
+      if (Array.isArray(s.lastTurn.byModel)) for (const m of s.lastTurn.byModel) m.cost = conv(m.cost)
+    }
+  }
+  return stats
+}
 
 export function apply(ctx) {
   // 启动时抓一次官方定价(官方改价后自动跟随;失败静默用内置表)
