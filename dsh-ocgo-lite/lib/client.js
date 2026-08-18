@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const ReactDOM = require("react-dom");
 
-    const inject = ["slots"];
+    const inject = ["slots", "modelDirectories"];
     const API = "/ocgo-lite/api";
 
     // 少量增强样式(仅 hover;核心布局与卡片样式全部内联,不依赖注入成功)
@@ -136,6 +136,24 @@ window.__ModuleLoader__.load({
       const sessionId = (props && props.sessionId) || null;
       // 窄屏(手机):收紧间距/字号/圆环,整条状态条允许换行,防止横向溢出页面
       const narrow = useNarrow();
+      // 模型目录服务:订阅输入框当前选中的 provider/model(切换模型→账户跟随)
+      const dirState = React.useSyncExternalStore(
+        (fn) => {
+          try {
+            const md = props && props.modelDirectories;
+            const dir = md && sessionId ? md.directoryFor(sessionId) : null;
+            if (!dir) return () => {};
+            return dir.store.subscribe(fn);
+          } catch { return () => {}; }
+        },
+        () => {
+          try {
+            const md = props && props.modelDirectories;
+            const dir = md && sessionId ? md.directoryFor(sessionId) : null;
+            return dir ? dir.store.getSnapshot() : null;
+          } catch { return null; }
+        },
+      );
       const [data, setData] = React.useState(sharedData);
       const [loading, setLoading] = React.useState(!sharedData);
       // 当前展开详情的区块:null=收起;pop={key, rect}
@@ -282,9 +300,11 @@ window.__ModuleLoader__.load({
       ) : null;
       const bmList = (s && s.byModel) || [];
       const sumTok = (tt) => (tt.input || 0) + (tt.output || 0) + (tt.reasoning || 0) + (tt.cacheRead || 0) + (tt.cacheWrite || 0);
-      // 当前提供方:当前会话最后事件 provider(实时跟随切换)→ 活跃 provider → 默认 GO
+      // 当前提供方优先级:输入框选中的模型 provider(实时跟随) → 当前会话最后事件
+      // provider → 活跃 provider → 默认 GO
+      const selProv = (dirState && dirState.current && dirState.current.provider) || null;
       const actProv = (s && s.activeProvider) || null;
-      const badgeProvider = (currentSession && currentSession.lastProvider) || actProv || "opencode-go";
+      const badgeProvider = selProv || (currentSession && currentSession.lastProvider) || actProv || "opencode-go";
       const providerShort = (p) => (p === "opencode-go" ? "GO" : (p === "xiaomi-token-plan-cn" ? "MiMo" : (p === "deepseek-official" ? "DS" : (p === "openrouter" ? "OR" : (p && p !== "unknown" ? p.slice(0, 4).toUpperCase() : "API")))));
       const providerFull = (p) => (p === "opencode-go" ? "OpenCode Go" : (p === "xiaomi-token-plan-cn" ? "小米 Token Plan" : (p === "deepseek-official" ? "DeepSeek" : (p === "openrouter" ? "OpenRouter" : (p && p !== "unknown" ? p : "未知")))));
       // 当前 provider 的配额/余额（来自 providerQuota 按 provider 分组）
@@ -759,7 +779,10 @@ window.__ModuleLoader__.load({
           id: "ocgo-lite",
           order: 1,
           label: () => "OpenCode Go 用量",
-        }, (props) => React.createElement(OcgoLite, { sessionId: props && props.sessionId }))
+        }, (props) => React.createElement(OcgoLite, {
+          sessionId: props && props.sessionId,
+          modelDirectories: ctx.get("modelDirectories"),
+        }))
       ), "ocgo-lite: dock");
     }
 
