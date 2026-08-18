@@ -644,7 +644,7 @@ window.__ModuleLoader__.load({
             React.createElement("span", { style: bStyle }, data && data.ok ? "已连接 ✓" : "未连接")),
           winRows,
           React.createElement("div", { style: rowStyle }, React.createElement("span", null, "当前提供方："),
-            React.createElement("span", { style: bStyle }, provName(ap))),
+            React.createElement("span", { style: bStyle }, providerFull(ap))),
           provRows,
           React.createElement("div", { style: rowStyle }, React.createElement("span", null, "API Key："),
             React.createElement("span", { style: { fontVariantNumeric: "tabular-nums", color: "var(--dsw-alias-label-primary, #222)" } }, keyMask)),
