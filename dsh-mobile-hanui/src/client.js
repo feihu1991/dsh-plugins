@@ -68,6 +68,9 @@ window.__ModuleLoader__.load({
       add: 'uV2eYG_add',
       input: 'uV2eYG_input',
       mirror: 'uV2eYG_mirror',
+      backdrop: 'uV2eYG_backdrop',
+      scroll: 'uV2eYG_scroll',
+      grow: 'uV2eYG_grow',
     }
     // Conversation session header (title / 轨迹 / AgentPreset「模式」)
     const HDR = {
@@ -459,9 +462,15 @@ window.__ModuleLoader__.load({
     margin-left: 0 !important;
     z-index: 5 !important;
   }
-  /* Keep typed text clear of the now-line-level send button. */
+  /* Keep typed text clear of the now-line-level send button. The composer is a
+     three-layer stack: a transparent <textarea> (shows only the caret), a hidden
+     "mirror" sizer (drives auto-grow height), and a visible "backdrop" text
+     layer. All three must share IDENTICAL padding so the caret lines up with the
+     text; otherwise the textarea wraps at a different width than the backdrop
+     and the caret drifts onto a different line than the visible text. */
   html.${HTML_CLASS} .${INPUT.input},
-  html.${HTML_CLASS} .${INPUT.mirror} {
+  html.${HTML_CLASS} .${INPUT.mirror},
+  html.${HTML_CLASS} .${INPUT.backdrop} {
     padding-right: 56px !important;
   }
 
@@ -1277,13 +1286,19 @@ window.__ModuleLoader__.load({
           const onBackdrop =
             target === backdrop || (target instanceof Element && backdrop.contains(target))
 
-          // 在侧边栏/抽屉内部也支持滑动关闭（向右滑）
-          const frame = backdrop.parentElement
-          const sidebarEl = frame
-            ?.querySelector?.('.' + CLS.sidebar)
-          const onSidebar = sidebarEl &&
-            (target === sidebarEl || sidebarEl.contains(target)) &&
-            !onBackdrop
+          // The sidebar lives OUTSIDE the shell-overlay layer that hosts the
+          // backdrop — it is a sibling of the overlay, not its descendant. The
+          // previous code did backdrop.parentElement.querySelector(.sidebar),
+          // which searched inside the overlay and therefore ALWAYS returned
+          // null, so swiping the drawer itself never entered 'close-drawer'
+          // mode and the gesture silently did nothing. Resolve the sidebar from
+          // the frame instead.
+          const frame = findFrame()
+          const sidebarEl = findSidebar(frame)
+          const onSidebar = !onBackdrop &&
+            sidebarEl != null &&
+            target instanceof Element &&
+            (target === sidebarEl || sidebarEl.contains(target))
 
           if (!onBackdrop && !onSidebar) {
             mode = null
@@ -1331,8 +1346,8 @@ window.__ModuleLoader__.load({
             ignoreBackdropClickUntil.current = Date.now() + 300
             onClose()
           } else if (swipeMode === 'close-drawer') {
-            // 在侧边栏上：右滑关闭
-            if (dx < SWIPE_DX_MIN || Math.abs(dx) < Math.abs(dy) * SWIPE_DX_DY) return
+            // 在侧边栏/抽屉上：左滑关闭（把抽屉推回左侧离屏方向，符合「缩回去」的手势）
+            if (dx > -SWIPE_DX_MIN || Math.abs(dx) < Math.abs(dy) * SWIPE_DX_DY) return
             ignoreBackdropClickUntil.current = Date.now() + 300
             onClose()
           }
@@ -1376,9 +1391,21 @@ window.__ModuleLoader__.load({
       }, [mobile])
 
       // Drive the app frame height from the visual viewport so the sticky
-      // composer rises above the Android soft keyboard (the layout viewport /
-      // height:100% chain does not shrink when the keyboard opens). Set a CSS
-      // variable consumed by `.frame { height: var(--dsh-vv-height, 100%) }`.
+      // composer rises above the soft keyboard. The default behavior depends on
+      // the browser/WebView:
+      //   - Chrome (interactive-widget=resizes-visual, default): the LAYOUT
+      //     viewport does not shrink, only visualViewport.height does.
+      //   - Android WebView adjustResize / some browsers: window.innerHeight
+      //     shrinks too.
+      //   - WebView adjustNothing / overlaysContent: NEITHER shrinks, the IME
+      //     just covers the page — visualViewport.height is unchanged and the
+      //     composer is stranded under the keyboard. The VirtualKeyboard API
+      //     reports the IME boundingRect for exactly this case, so we opt into
+      //     overlay mode and subtract the IME height ourselves.
+      // The shell page itself never scrolls (frame is overflow:hidden, 100%),
+      // so we also pin scrollY/scrollX to 0: undo any layout-viewport drift the
+      // browser applied to reveal the caret, keeping the shrunken frame aligned
+      // with the visible region. CSS: .frame { height: var(--dsh-vv-height) }.
       React.useEffect(() => {
         if (!mobile) return
         const root = document.documentElement
@@ -1387,10 +1414,19 @@ window.__ModuleLoader__.load({
           const innerH = window.innerHeight
           let h = innerH
           if (vv && typeof vv.height === 'number' && vv.height > 0) h = vv.height
+          // VirtualKeyboard API: WebViews that neither resize the layout viewport
+          // nor shrink the visual viewport when the IME opens.
+          const vk = navigator.virtualKeyboard
+          if (vk && vk.boundingRect && vk.boundingRect.height > 0) {
+            h = Math.min(h, innerH - vk.boundingRect.height)
+          }
           // Clamp: never exceed the layout viewport (keyboard fully closed) and
           // never below a sane floor so the composer stays reachable.
           h = Math.max(320, Math.min(h, innerH + 1))
           root.style.setProperty('--dsh-vv-height', `${h}px`)
+          // Keep the layout viewport pinned to the top so the shrunken frame
+          // stays aligned with the visible region instead of being scrolled off.
+          if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0)
         }
         apply()
         window.addEventListener('resize', apply)
@@ -1398,12 +1434,77 @@ window.__ModuleLoader__.load({
         const vv = window.visualViewport
         vv?.addEventListener?.('resize', apply)
         vv?.addEventListener?.('scroll', apply)
+        // VirtualKeyboard: opt into overlay mode so geometrychange reports the
+        // IME rect (guarded — the API is unavailable on iOS Safari / older
+        // Chromium, where the visualViewport path already covers the case).
+        const vk = navigator.virtualKeyboard
+        let vkOverlaysWas = null
+        if (vk) {
+          try {
+            vkOverlaysWas = vk.overlaysContent
+            vk.overlaysContent = true
+            vk.addEventListener('geometrychange', apply)
+          } catch (_) {}
+        }
+        // The IME animation can fire its resize late — or, on some WebViews
+        // (adjustNothing / fullscreen modes), fire NO resize at all. While a
+        // composer input has focus, poll the viewport sizes every 200ms and
+        // re-apply; apply() is idempotent and cheap, so this catches delayed,
+        // absent, or event-less keyboard resize. Polling stops on blur.
+        let inputFocused = false
+        let pollTimer = 0
+        const onInputFocusChange = (e) => {
+          const t = e.target
+          const isInput = t instanceof Element &&
+            t.closest('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), [contenteditable="true"]')
+          if (e.type === 'focusin') {
+            if (isInput) {
+              inputFocused = true
+              apply()
+              if (!pollTimer) {
+                const tick = () => {
+                  if (!inputFocused) {
+                    pollTimer = 0
+                    return
+                  }
+                  apply()
+                  pollTimer = window.setTimeout(tick, 200)
+                }
+                pollTimer = window.setTimeout(tick, 200)
+              }
+            }
+          } else if (e.type === 'focusout' && isInput) {
+            const next = e.relatedTarget
+            const stillInput = next instanceof Element &&
+              next.closest('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), [contenteditable="true"]')
+            if (!stillInput) {
+              inputFocused = false
+              if (pollTimer) {
+                window.clearTimeout(pollTimer)
+                pollTimer = 0
+              }
+              // Keyboard is closing; settle the frame height back to full.
+              apply()
+            }
+          }
+        }
+        document.addEventListener('focusin', onInputFocusChange, true)
+        document.addEventListener('focusout', onInputFocusChange, true)
         return () => {
           root.style.removeProperty('--dsh-vv-height')
           window.removeEventListener('resize', apply)
           window.removeEventListener('orientationchange', apply)
           vv?.removeEventListener?.('resize', apply)
           vv?.removeEventListener?.('scroll', apply)
+          if (vk) {
+            try {
+              vk.removeEventListener('geometrychange', apply)
+              if (vkOverlaysWas !== null) vk.overlaysContent = vkOverlaysWas
+            } catch (_) {}
+          }
+          document.removeEventListener('focusin', onInputFocusChange, true)
+          document.removeEventListener('focusout', onInputFocusChange, true)
+          if (pollTimer) window.clearTimeout(pollTimer)
         }
       }, [mobile])
 
