@@ -263,6 +263,9 @@ window.__ModuleLoader__.load({
           React.createElement("button", { onClick: load, style: { border: "1px solid rgba(128,128,128,.35)", background: "transparent", color: "inherit", borderRadius: 6, padding: "2px 8px", fontSize: 10, cursor: "pointer" } }, "重试"));
       }
 
+      try {
+      // === stats render (wrapped in try-catch for debugging) ===
+
       const s = data.stats || {};
       const t = s.tokens || {};
       const total = (t.input || 0) + (t.output || 0) + (t.reasoning || 0) + (t.cacheRead || 0) + (t.cacheWrite || 0);
@@ -733,6 +736,11 @@ window.__ModuleLoader__.load({
         bar,
         ReactDOM.createPortal(card, document.body),
         toastEl);
+      } catch (renderErr) {
+        return React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10, color: "#e5484d", whiteSpace: "nowrap" } },
+          React.createElement("span", { style: { fontWeight: 700 } }, "渲染错误："),
+          React.createElement("span", null, String(renderErr && renderErr.message || renderErr)));
+      }
     }
 
     function apply(ctx) {
