@@ -209,9 +209,15 @@ async function fetchOfficialPricing() {
         .replace(/^-|-$/g, '')
       if (!name || name === 'model') continue
       // 去掉 \$ 符号再解析(parseFloat('$2.00') 会失败)
-      const priceIn = parseFloat(String(cells[1]).replace(/[^0-9.]/g, ''))
-      const priceOut = parseFloat(String(cells[2]).replace(/[^0-9.]/g, ''))
-      const priceCr = parseFloat(String(cells[3]).replace(/[^0-9.]/g, ''))
+      const parseP = (cell) => {
+        const n = parseFloat(String(cell).replace(/[^0-9.]/g, ''))
+        // 合理性防护:价格是每百万 tokens 的美元数(正常 < 1000),
+        // 若页面数字带千分位(如 "1,000,000") 会被解析成百万倍,直接跳过
+        return (!isNaN(n) && n > 0 && n < 1000) ? n : NaN
+      }
+      const priceIn = parseP(cells[1])
+      const priceOut = parseP(cells[2])
+      const priceCr = parseP(cells[3])
       if (isNaN(priceIn) || isNaN(priceOut)) continue
       const existing = PRICING[name]
       if (!existing) continue // 只覆盖已知模型,不引入未知
