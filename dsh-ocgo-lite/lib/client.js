@@ -392,21 +392,7 @@ window.__ModuleLoader__.load({
         })());
       barChildren.push(React.createElement("span", { style: sepBox }));
       // 配额圆环：仅当前 provider 有配额 API 时显示（opencode-go）
-      // 余额:DeepSeek/OpenRouter 等 type='balance' 的 provider,在配额位置显示余额
-      const balQuota = (curQuota && curQuota.type === 'balance') ? curQuota : null;
-      if (balQuota) {
-        let balText = "余额：-";
-        if (balQuota.totalBalance != null) {
-          const sym = balQuota.currency === "CNY" ? "¥" : "$";
-          balText = "余额：" + sym + Number(balQuota.totalBalance).toFixed(2) + (balQuota.currency === "CNY" ? "元" : "");
-        } else if (balQuota.limitRemaining != null) {
-          balText = "余额：$" + Number(balQuota.limitRemaining).toFixed(2);
-        }
-        barChildren.push(seg("balance", [
-          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, balText),
-        ]));
-        barChildren.push(React.createElement("span", { style: sepBox }));
-      }
+      // 注：余额（DeepSeek/OpenRouter）不在此处显示，点最左边 badge 展开账户卡片可见
       if (hasQuota) {
         barChildren.push(seg("quota-rolling", [
           React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "滚动："),
