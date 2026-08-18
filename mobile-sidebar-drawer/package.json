@@ -1,0 +1,25 @@
+{
+  "name": "mobile-sidebar-drawer",
+  "version": "1.0.0",
+  "description": "Mobile sidebar drawer for DSH Web GUI - converts sidebar to off-canvas drawer in portrait mode",
+  "type": "module",
+  "main": "./mobile-sidebar-drawer.js",
+  "exports": {
+    ".": "./mobile-sidebar-drawer.js",
+    "./client": "./mobile-sidebar-drawer.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "mobile-sidebar-drawer.js",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+# Mobile sidebar drawer plugin patch
+- id: mobile-sidebar-drawer
+  enable: true
