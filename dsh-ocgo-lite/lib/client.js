@@ -36,7 +36,7 @@ window.__ModuleLoader__.load({
     }
     function fmtUsd(v) {
       v = Number(v);
-      return isNaN(v) ? "-" : "$" + v.toFixed(2);
+      return isNaN(v) ? "-" : "¥" + v.toFixed(2);
     }
     function fmtReset(iso) {
       if (!iso) return "未知";
@@ -392,6 +392,21 @@ window.__ModuleLoader__.load({
         })());
       barChildren.push(React.createElement("span", { style: sepBox }));
       // 配额圆环：仅当前 provider 有配额 API 时显示（opencode-go）
+      // 余额:DeepSeek/OpenRouter 等 type='balance' 的 provider,在配额位置显示余额
+      const balQuota = (curQuota && curQuota.type === 'balance') ? curQuota : null;
+      if (balQuota) {
+        let balText = "余额：-";
+        if (balQuota.totalBalance != null) {
+          const sym = balQuota.currency === "CNY" ? "¥" : "$";
+          balText = "余额：" + sym + Number(balQuota.totalBalance).toFixed(2) + (balQuota.currency === "CNY" ? "元" : "");
+        } else if (balQuota.limitRemaining != null) {
+          balText = "余额：$" + Number(balQuota.limitRemaining).toFixed(2);
+        }
+        barChildren.push(seg("balance", [
+          React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, balText),
+        ]));
+        barChildren.push(React.createElement("span", { style: sepBox }));
+      }
       if (hasQuota) {
         barChildren.push(seg("quota-rolling", [
           React.createElement("span", { key: "l", style: { color: "rgba(128,128,128,.8)" } }, "滚动："),
@@ -621,6 +636,15 @@ window.__ModuleLoader__.load({
           React.createElement("div", { key: label, style: rowStyle },
             React.createElement("span", null, label + "："),
             React.createElement("span", { style: bStyle }, p == null ? "-" : p + "%"))) : [];
+        // DeepSeek 余额（人民币）
+        const dsQuota = (data.providerQuota || {})["deepseek-official"];
+        if (badgeProvider === "deepseek-official" && dsQuota && !dsQuota.error) {
+          if (dsQuota.totalBalance != null) {
+            winRows.push(React.createElement("div", { key: "ds-bal", style: rowStyle },
+              React.createElement("span", null, "余额："),
+              React.createElement("span", { style: bStyle }, "¥" + Number(dsQuota.totalBalance).toFixed(2) + "元")));
+          }
+        }
         // OpenRouter 余额
         const orQuota = (data.providerQuota || {})["openrouter"];
         if (badgeProvider === "openrouter" && orQuota && !orQuota.error) {
@@ -695,7 +719,7 @@ window.__ModuleLoader__.load({
         content = React.createElement(React.Fragment, null,
           React.createElement("div", { style: h4Style }, "消耗金额" + (selModel ? " · " + selModel.model : (scoped ? " · " + scopeLabel : ""))),
           React.createElement("div", { style: rowStyle }, React.createElement("span", null, "累计："),
-            React.createElement("span", { style: bStyle }, fmtUsd(cardCost) + (cardUnknown > 0 ? " 美元（" + cardUnknown + " 次定价未知）" : " 美元"))),
+            React.createElement("span", { style: bStyle }, fmtUsd(cardCost) + (cardUnknown > 0 ? " 元（" + cardUnknown + " 次定价未知）" : " 元"))),
           React.createElement("div", { style: rowStyle }, React.createElement("span", null, "会话数："),
             React.createElement("span", { style: bStyle }, cardSessions)),
           bm.length ? React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--dsw-alias-label-tertiary, #888)", marginTop: 6 } }, "按模型（花费）" + (selModel ? "（仅所选模型）" : (scoped ? " · " + scopeLabel : ""))) : null,

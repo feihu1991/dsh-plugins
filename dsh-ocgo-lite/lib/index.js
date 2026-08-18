@@ -73,9 +73,21 @@ function readCredential(envName) {
   return null
 }
 
-// 提取 provider 专属 API key（环境变量优先，.credentials.yaml 兜底）
+// 提取 provider 专属 API key（环境变量优先，.credentials.yaml 兜底，启动脚本兜底）
 function getProviderKey(envName) {
-  return process.env[envName] || readCredential(envName) || null
+  if (process.env[envName]) return process.env[envName]
+  const cred = readCredential(envName)
+  if (cred) return cred
+  // 兜底:DSHA 启动脚本里 export 的 key(如 /root/dsh-cmd.txt)
+  try {
+    for (const p of ['/root/dsh-cmd.txt', '/root/dsh-cmd.sh', join(homeDir(), 'dsh-cmd.txt')]) {
+      if (!existsSync(p)) continue
+      const text = readFileSync(p, 'utf8')
+      const m = text.match(new RegExp('export\\s+' + envName + "=\\s*['\"]?([^'\"\\n]+)['\"]?"))
+      if (m && m[1]) return m[1].trim()
+    }
+  } catch {}
+  return null
 }
 
 function findDataDir() {
@@ -137,6 +149,23 @@ async function fetchOpenRouterBalance(key) {
     limitRemaining: (typeof d.limit === 'number' && typeof d.usage === 'number') ? Math.max(0, d.limit - d.usage) : null,
     isFreeTier: !!d.is_free_tier,
     rateLimit: d.rate_limit || null,
+    error: null,
+  }
+}
+
+// DeepSeek 余额: https://api.deepseek.com/user/balance（返回人民币）
+async function fetchDeepSeekBalance(key) {
+  const body = await fetchJson('https://api.deepseek.com/user/balance', key)
+  if (body.error) return body
+  const infos = (body && body.balance_infos) || []
+  const cny = infos.find((i) => i && i.currency === 'CNY') || infos[0] || {}
+  const parseNum = (x) => { const n = parseFloat(x); return isNaN(n) ? null : n }
+  return {
+    totalBalance: parseNum(cny.total_balance),
+    grantedBalance: parseNum(cny.granted_balance),
+    toppedUpBalance: parseNum(cny.topped_up_balance),
+    currency: cny.currency || 'CNY',
+    isAvailable: body.is_available,
     error: null,
   }
 }
@@ -691,6 +720,10 @@ async function collect(ctx, liveId) {
   const stats = liveId ? await liveSessionStats(sq, liveId) : await collectDshStats(sq)
   if (stats.error) { out.error = stats.error; return out }
   out.stats = stats
+  // 花费统一换算成人民币显示(定价表为 USD,乘以汇率)
+  convertCostToCny(out.stats)
+  out.meta.currency = 'CNY'
+  out.meta.cnyPerUsd = CNY_PER_USD
   out.ok = true // 统计可用即 ok，配额缺失不阻断
 
   // ── 各 provider 配额/余额查询（可选，失败不阻断）──
@@ -721,11 +754,42 @@ async function collect(ctx, liveId) {
     }
   }
 
-  // 3. 其他 provider 余额（扩展点：按需添加）
+  // 3. DeepSeek 余额（人民币）
+  const dsKey = getProviderKey('DEEPSEEK_API_KEY')
+  if (dsKey) {
+    const bal = await fetchDeepSeekBalance(dsKey)
+    if (!bal.error) {
+      out.providerQuota['deepseek-official'] = { type: 'balance', ...bal }
+    }
+  }
+
+  // 4. 其他 provider 余额（扩展点：按需添加）
   // xiaomi-token-plan-cn: 暂无公开余额 API，跳过
-  // deepseek-official: 如有 direct key 可加 fetchDeepSeekBalance
 
   return out
+}
+
+// USD → CNY 汇率(用于把官方定价表的 USD 花费换算成人民币显示)
+const CNY_PER_USD = 7.15
+
+// 递归把 stats 里所有 cost 字段从 USD 换算成 CNY(costKnown/costUnknown 是次数,不转)
+function convertCostToCny(stats) {
+  if (!stats) return stats
+  const conv = (x) => r4((x || 0) * CNY_PER_USD)
+  stats.cost = conv(stats.cost)
+  if (Array.isArray(stats.providers)) for (const p of stats.providers) p.cost = conv(p.cost)
+  if (Array.isArray(stats.byModel)) for (const m of stats.byModel) m.cost = conv(m.cost)
+  if (Array.isArray(stats.bySession)) for (const s of stats.bySession) {
+    s.cost = conv(s.cost)
+    if (Array.isArray(s.byProvider)) for (const p of s.byProvider) p.cost = conv(p.cost)
+    if (Array.isArray(s.byModel)) for (const m of s.byModel) m.cost = conv(m.cost)
+    if (s.lastTurn) {
+      s.lastTurn.cost = conv(s.lastTurn.cost)
+      if (Array.isArray(s.lastTurn.byProvider)) for (const p of s.lastTurn.byProvider) p.cost = conv(p.cost)
+      if (Array.isArray(s.lastTurn.byModel)) for (const m of s.lastTurn.byModel) m.cost = conv(m.cost)
+    }
+  }
+  return stats
 }
 
 export function apply(ctx) {
@@ -735,7 +799,7 @@ export function apply(ctx) {
   try {
     const tool = {
       name: 'provider_usage',
-      description: '查询当前所有已配置 AI provider 的用量与余额（OpenCode Go 配额、OpenRouter 余额等），以及 DSH 会话累计消耗的 token 数量（输入/输出/推理/缓存）与消费金额（USD，按官方定价估算）。无余额 API 的 provider 只显示 token 统计。',
+      description: '查询当前所有已配置 AI provider 的用量与余额（OpenCode Go 配额、OpenRouter 余额等），以及 DSH 会话累计消耗的 token 数量（输入/输出/推理/缓存）与消费金额（人民币，按官方定价估算）。无余额 API 的 provider 只显示 token 统计。',
       parameters: {},
       output: {
         schema: { type: 'object', properties: {}, additionalProperties: true },
