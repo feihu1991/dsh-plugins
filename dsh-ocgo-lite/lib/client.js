@@ -263,11 +263,6 @@ window.__ModuleLoader__.load({
           React.createElement("button", { onClick: load, style: { border: "1px solid rgba(128,128,128,.35)", background: "transparent", color: "inherit", borderRadius: 6, padding: "2px 8px", fontSize: 10, cursor: "pointer" } }, "重试"));
       }
 
-      // 当前 provider 的配额/余额（来自 providerQuota 按 provider 分组）
-      const curQuota = (data.providerQuota || {})[badgeProvider] || data.quota || null;
-      const q = curQuota || {};
-      const hasQuota = curQuota && curQuota.type === 'opencode';
-      const rp = hasQuota ? pctOf(q.rolling) : null, wp = hasQuota ? pctOf(q.weekly) : null, mp = hasQuota ? pctOf(q.monthly) : null;
       const s = data.stats || {};
       const t = s.tokens || {};
       const total = (t.input || 0) + (t.output || 0) + (t.reasoning || 0) + (t.cacheRead || 0) + (t.cacheWrite || 0);
@@ -289,6 +284,11 @@ window.__ModuleLoader__.load({
       const badgeProvider = (currentSession && currentSession.lastProvider) || actProv || "opencode-go";
       const providerShort = (p) => (p === "opencode-go" ? "GO" : (p === "xiaomi-token-plan-cn" ? "MiMo" : (p === "deepseek-official" ? "DS" : (p === "openrouter" ? "OR" : (p && p !== "unknown" ? p.slice(0, 4).toUpperCase() : "API")))));
       const providerFull = (p) => (p === "opencode-go" ? "OpenCode Go" : (p === "xiaomi-token-plan-cn" ? "小米 Token Plan" : (p === "deepseek-official" ? "DeepSeek" : (p === "openrouter" ? "OpenRouter" : (p && p !== "unknown" ? p : "未知")))));
+      // 当前 provider 的配额/余额（来自 providerQuota 按 provider 分组）
+      const curQuota = (data.providerQuota || {})[badgeProvider] || data.quota || null;
+      const q = curQuota || {};
+      const hasQuota = !!(curQuota && curQuota.type === 'opencode');
+      const rp = hasQuota ? pctOf(q.rolling) : null, wp = hasQuota ? pctOf(q.weekly) : null, mp = hasQuota ? pctOf(q.monthly) : null;
       // 按当前提供方过滤的全局统计
       const provStats = ((s && s.providers) || []).find((p) => p.provider === badgeProvider) || null;
       const provTotal = provStats ? sumTok(provStats.tokens) : 0;
